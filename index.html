@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Emotion Detection from Text and Images</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,900&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#15182b;          /* deep ink */
+  --ink-soft:#3a3f57;
+  --paper:#f7f6f2;        /* warm off-white */
+  --line:#e3e0d6;
+  --text:#1d2030;         /* dialogue / text modality — warm coral */
+  --text-bg:#fff1ec;
+  --text-bc:#ff6b4a;
+  --vision:#0f9b8e;       /* image / vision modality — teal */
+  --vision-bg:#e7f6f3;
+  --vision-bc:#0f9b8e;
+  --fuse:#6c4ad6;         /* fusion — violet */
+  --fuse-bg:#efeafc;
+  --muted:#7b7f93;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--paper);color:var(--ink);width:100vw;height:100vh;overflow:hidden;}
+
+/* ── CANVAS ── */
+#draw-canvas{position:fixed;inset:0;z-index:999;pointer-events:none;}
+#draw-canvas.pen-on{pointer-events:all;cursor:none;}
+#draw-canvas.eraser-on{pointer-events:all;cursor:none;}
+#draw-cursor{position:fixed;left:0;top:0;width:17px;height:17px;border-radius:50%;border:2px solid var(--ink);background:rgba(255,255,255,.88);box-shadow:0 0 0 2px rgba(255,255,255,.95),0 0 9px rgba(0,0,0,.4);pointer-events:none;z-index:2000;display:none;transform:translate(-50%,-50%);}
+#draw-cursor::before,#draw-cursor::after{content:'';position:absolute;background:var(--ink);left:50%;top:50%;transform:translate(-50%,-50%);}
+#draw-cursor::before{width:11px;height:2px;}
+#draw-cursor::after{width:2px;height:11px;}
+#draw-cursor.show{display:block;}
+#draw-cursor.eraser{border-style:dashed;width:23px;height:23px;}
+
+/* ── TOOLBAR ── */
+#toolbar{position:fixed;left:12px;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:8px;background:rgba(21,24,43,0.95);
+  border-radius:22px;padding:10px 8px;z-index:1000;box-shadow:0 6px 20px rgba(0,0,0,0.3);}
+.tb{width:30px;height:30px;border-radius:50%;border:1.5px solid transparent;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;
+  background:rgba(255,255,255,0.08);transition:all 0.2s;}
+.tb:hover{background:rgba(255,255,255,0.18);}
+.tb.active{background:var(--fuse);border-color:#9b82e8;}
+.cb{width:18px;height:18px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);cursor:pointer;transition:all 0.2s;}
+.cb:hover{transform:scale(1.2);}
+.cb.active{border-color:white;transform:scale(1.25);}
+.sb{border-radius:50%;background:white;cursor:pointer;border:2px solid rgba(255,255,255,0.25);}
+.sb.active{border-color:#b8a6f5;}
+.tdiv{width:18px;height:1px;background:rgba(255,255,255,0.16);margin:2px 0;}
+
+/* ── NAV ── */
+.nav{position:fixed;bottom:14px;right:16px;display:flex;gap:6px;z-index:1000;}
+.nbtn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:16px;font-weight:700;cursor:pointer;border:none;transition:all 0.2s;}
+.pb{background:#e9e6dc;color:#6b7280;}.pb:hover{background:#ddd9cd;}
+.nb{background:var(--fuse);color:white;}.nb:hover{background:#5639bf;}
+.info-bar{position:fixed;bottom:18px;left:16px;font-size:11.5px;color:var(--muted);max-width:430px;z-index:1000;transition:all .25s ease;line-height:1.4;}
+.counter{position:fixed;top:12px;right:16px;font-size:11px;color:var(--muted);
+  background:#fff;padding:3px 10px;border-radius:20px;border:1px solid var(--line);z-index:1000;font-weight:600;}
+
+/* ── SLIDES ── */
+.slide{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  background:var(--paper);padding:46px 64px 64px;}
+.slide.active{display:flex;}
+@keyframes up{from{opacity:0;transform:translateY(22px);}to{opacity:1;transform:translateY(0);}}
+@keyframes pop{from{opacity:0;transform:scale(.86);}to{opacity:1;transform:scale(1);}}
+@keyframes fade{from{opacity:0;}to{opacity:1;}}
+
+.eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:3px;
+  text-transform:uppercase;color:var(--fuse);font-weight:700;}
+.s-h{font-family:'Fraunces',serif;font-weight:700;color:var(--ink);line-height:1.08;}
+
+/* generic reveal element */
+.rv{opacity:0;}
+.rv.show{animation:up .55s forwards;}
+
+/* ════ SLIDE 1 — TITLE ════ */
+#s1{flex-direction:column;}
+.s1c{display:flex;flex-direction:column;align-items:center;text-align:center;gap:18px;max-width:860px;}
+.s1-tag{opacity:0;animation:up .7s .2s forwards;}
+.s1-title{font-family:'Fraunces',serif;font-size:62px;font-weight:900;line-height:1.05;color:var(--ink);opacity:0;animation:up .7s .45s forwards;}
+.s1-title .t{color:var(--text-bc);}.s1-title .v{color:var(--vision);}
+.s1-sub{font-size:17px;color:var(--ink-soft);font-weight:500;opacity:0;animation:up .7s .65s forwards;}
+.s1-pipe{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;opacity:0;animation:up .7s .85s forwards;}
+.s1-chip{padding:11px 20px;border-radius:13px;font-weight:700;font-size:15px;border:2px solid;}
+.s1-chip.t{background:var(--text-bg);border-color:var(--text-bc);color:#c23a18;}
+.s1-chip.v{background:var(--vision-bg);border-color:var(--vision-bc);color:#0a6b62;}
+.s1-chip.f{background:var(--fuse-bg);border-color:var(--fuse);color:#4a2bb0;}
+.s1-arrow{font-size:24px;color:var(--muted);font-weight:800;}
+.s1-q{font-family:'Fraunces',serif;font-style:italic;font-size:21px;color:var(--ink);max-width:640px;line-height:1.45;opacity:0;animation:up .7s 1.05s forwards;}
+.s1-meta{display:flex;flex-direction:column;gap:5px;font-size:13.5px;color:var(--muted);margin-top:4px;opacity:0;animation:up .7s 1.25s forwards;}
+.s1-meta b{color:var(--ink);font-weight:700;}
+
+/* ════ generic content slide layout ════ */
+.wrap{width:100%;max-width:1280px;display:flex;flex-direction:column;gap:18px;}
+.head-row{display:flex;flex-direction:column;gap:8px;}
+.head-row .s-h{font-size:34px;}
+.lead{font-size:15px;color:var(--ink-soft);line-height:1.55;max-width:900px;}
+.card{background:#fff;border:1.5px solid var(--line);border-radius:16px;box-shadow:0 8px 22px rgba(21,24,43,.05);}
+.callout{border-radius:12px;padding:12px 16px;font-size:13.5px;line-height:1.5;}
+.callout.warn{background:#fff7ed;border:1.5px solid #f6b87a;color:#7c3a06;}
+.callout.note{background:var(--fuse-bg);border:1.5px solid #bda9f0;color:#4a2bb0;}
+.tag-t{color:var(--text-bc);font-weight:800;}
+.tag-v{color:var(--vision);font-weight:800;}
+.tag-f{color:var(--fuse);font-weight:800;}
+
+/* ════ SLIDE 2 — PROBLEM ════ */
+#s2 .ambig{display:grid;grid-template-columns:1.15fr .85fr;gap:22px;align-items:stretch;}
+.quote-card{padding:26px 28px;display:flex;flex-direction:column;gap:16px;justify-content:center;}
+.big-quote{font-family:'Fraunces',serif;font-style:italic;font-size:30px;font-weight:600;color:var(--ink);line-height:1.3;}
+.guess-row{display:flex;gap:9px;flex-wrap:wrap;}
+.guess{padding:7px 14px;border-radius:999px;font-size:13px;font-weight:700;border:1.6px dashed #c9ccd9;color:var(--muted);background:#fafafa;}
+.faces{display:flex;flex-direction:column;gap:14px;justify-content:center;align-items:center;padding:18px;}
+.face-pair{display:flex;gap:18px;}
+.face-ic{width:96px;height:96px;border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:52px;border:2px solid var(--line);background:#fff;box-shadow:0 6px 16px rgba(21,24,43,.06);}
+.face-ask{font-size:13px;color:var(--ink-soft);text-align:center;font-weight:600;line-height:1.5;max-width:260px;}
+.emolist{display:flex;gap:8px;flex-wrap:wrap;}
+.emo-tok{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;padding:6px 12px;border-radius:9px;background:var(--ink);color:#fff;}
+.why-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+.why-c{background:#fff;border:1.5px solid var(--line);border-radius:13px;padding:13px 14px;font-size:13px;color:var(--ink-soft);display:flex;flex-direction:column;gap:6px;}
+.why-c .ic{font-size:22px;}
+.why-c b{color:var(--ink);font-size:13.5px;}
+
+/* ════ SLIDE 2 — PROBLEM (updated) ════ */
+#s2 .prob-grid{display:grid;grid-template-columns:0.9fr 1.1fr;gap:26px;align-items:start;}
+.channel-row{display:flex;flex-direction:column;gap:10px;}
+.channel-card{display:flex;align-items:center;gap:14px;background:#fff;border:1.5px solid var(--line);border-radius:13px;padding:12px 16px;}
+.channel-card .ic{font-size:21px;}
+.channel-card b{font-size:13.5px;color:var(--ink);display:block;}
+.channel-card span{font-size:11.5px;color:var(--muted);}
+.mm-note{margin-top:8px;border-left:4px solid var(--fuse);padding-left:14px;}
+.mm-note .mm-title{font-weight:800;color:var(--ink);font-size:14px;margin-bottom:9px;}
+.scope-pill{display:inline-block;background:var(--fuse);color:#fff;font-weight:700;font-size:12px;padding:7px 15px;border-radius:999px;}
+.audio-note{color:var(--muted);font-size:11.5px;margin-top:8px;}
+.scenario-col{display:flex;flex-direction:column;gap:14px;}
+.scenario-box{border-radius:14px;padding:15px 18px;font-size:12.8px;line-height:1.55;border:1.5px solid;}
+.scenario-box.s1{background:var(--fuse-bg);border-color:#bda9f0;color:#4a2bb0;}
+.scenario-box.s2{background:var(--vision-bg);border-color:var(--vision-bc);color:#0a4d46;}
+.scenario-box .sb-title{font-weight:800;font-size:13.5px;margin-bottom:7px;display:flex;align-items:center;gap:7px;color:var(--ink);}
+.ex-strip{margin-top:4px;border:2px dashed #c9ccd9;border-radius:16px;padding:15px 18px;display:grid;grid-template-columns:repeat(2,1fr);gap:18px;background:rgba(255,255,255,.45);}
+.ex-card{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:13px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:center;box-shadow:0 6px 16px rgba(21,24,43,.05);}
+.ex-col{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;border-right:1px solid var(--line);padding:0 4px;}
+.ex-col:last-child{border-right:none;}
+.ex-h{font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+.ex-bubble{width:38px;height:38px;border-radius:50%;background:#f0eee6;display:flex;align-items:center;justify-content:center;font-size:17px;}
+.ex-face{width:52px;height:52px;border-radius:11px;object-fit:cover;filter:grayscale(100%);border:2px solid var(--line);}
+.ex-text{font-size:11.5px;color:var(--ink-soft);font-style:italic;}
+.ex-pred{font-weight:800;font-size:13.5px;}
+.ex-pred.disgust{color:#c2790c;}
+.ex-pred.surprise{color:var(--fuse);}
+.ex-foot{margin-top:10px;font-size:11.5px;color:var(--muted);text-align:center;display:flex;align-items:center;justify-content:center;gap:6px;}
+
+/* ════ SLIDE 3 — DATA ════ */
+.src-row{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+.src-card{padding:20px 22px;display:flex;flex-direction:column;gap:12px;border-radius:16px;border:2px solid;}
+.src-card.t{border-color:var(--text-bc);background:var(--text-bg);}
+.src-card.v{border-color:var(--vision-bc);background:var(--vision-bg);}
+.src-card h3{font-family:'Fraunces',serif;font-size:21px;}
+.src-card.t h3{color:#c23a18;}.src-card.v h3{color:#0a6b62;}
+.src-card ul{list-style:none;display:flex;flex-direction:column;gap:7px;}
+.src-card li{font-size:13.5px;color:var(--ink-soft);padding-left:16px;position:relative;}
+.src-card li::before{content:'';position:absolute;left:0;top:7px;width:7px;height:7px;border-radius:50%;}
+.src-card.t li::before{background:var(--text-bc);}.src-card.v li::before{background:var(--vision-bc);}
+.legend{display:flex;align-items:center;gap:12px;justify-content:center;padding:13px;background:#fff;border:1.5px solid var(--line);border-radius:13px;flex-wrap:wrap;}
+.legend .lab{font-size:11.5px;font-weight:700;color:var(--muted);font-family:'JetBrains Mono',monospace;}
+.maplist{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;}
+.mapchip{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;padding:6px 13px;border-radius:9px;background:#fff;border:1.5px solid var(--line);color:var(--ink);}
+.mapchip .ar{color:var(--fuse);}
+
+/* ════ SLIDE 3 — DATASET & INPUT (updated) ════ */
+.ds-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:stretch;}
+.ds-card{border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:11px;border:2px solid;background:#fff;}
+.ds-card.t{border-color:var(--text-bc);}
+.ds-card.v{border-color:var(--vision-bc);}
+.ds-card h3{font-family:'Fraunces',serif;font-size:18.5px;font-weight:700;}
+.ds-card.t h3{color:#c23a18;}
+.ds-card.v h3{color:#0a6b62;}
+.ds-fact-list{display:flex;flex-direction:column;gap:6px;}
+.ds-fact{font-size:12.3px;color:var(--ink-soft);display:flex;gap:8px;align-items:flex-start;line-height:1.4;}
+.ds-fact b{color:var(--ink);}
+.ds-fact .mi{width:16px;text-align:center;flex:0 0 16px;}
+.ctx-box{border:1.5px solid var(--line);border-radius:13px;background:#fafafa;padding:12px 14px;margin-top:auto;}
+.ctx-title{font-size:12px;font-weight:800;color:var(--ink);margin-bottom:8px;text-align:center;}
+.ctx-row{display:grid;grid-template-columns:20px 1fr 68px;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:11.3px;}
+.ctx-row:last-of-type{border-bottom:none;}
+.ctx-num{width:19px;height:19px;border-radius:50%;background:var(--text-bc);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;}
+.ctx-pill{border-radius:7px;padding:3px 6px;text-align:center;font-size:10.3px;font-weight:800;}
+.ctx-pill.disgust{background:#fdeee3;color:#c2790c;}
+.ctx-pill.surprise{background:var(--vision-bg);color:#0a6b62;}
+.ctx-pill.angry{background:var(--text-bg);color:#c23a18;}
+.ctx-note{display:flex;gap:7px;font-size:10.8px;color:var(--muted);margin-top:8px;align-items:flex-start;line-height:1.4;}
+.face-box{border:1.8px dashed #c9ccd9;border-radius:14px;padding:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:auto;background:#fafafa;}
+.face-sample{text-align:center;}
+.face-sample img{width:62px;height:62px;border-radius:10px;object-fit:cover;filter:grayscale(100%);border:2px solid var(--line);}
+.face-sample .label{display:block;margin-top:6px;font-size:10.8px;font-weight:800;color:var(--ink);}
+.ds-bottom{margin-top:2px;background:#fff;border:1.5px solid var(--line);border-radius:15px;padding:14px 18px;display:flex;flex-direction:column;gap:10px;}
+.ds-shared-row{display:flex;gap:10px;align-items:flex-start;font-size:12.3px;color:var(--ink-soft);line-height:1.45;}
+.ds-shared-row b{color:var(--ink);}
+.imb-card{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:var(--fuse-bg);border:1.5px solid #bda9f0;border-radius:12px;padding:12px 16px;}
+.imb-col .title{display:block;font-size:12.3px;font-weight:800;color:#4a2bb0;margin-bottom:5px;}
+.imb-col div.line{font-size:11.8px;color:#3a2d6b;line-height:1.5;}
+.imb-foot{font-size:12px;color:var(--ink-soft);}
+
+/* ════ SLIDE 4 — TEXT/IMAGE MODEL IMPLEMENTATION ════ */
+.impl-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:stretch;}
+.impl-card{padding:18px 20px;display:flex;flex-direction:column;gap:4px;}
+.impl-card h3{font-family:'Fraunces',serif;font-size:18.5px;font-weight:700;margin-bottom:6px;}
+.impl-card.t h3{color:#c23a18;}
+.impl-card.v h3{color:#0a6b62;}
+.pipe-flow{display:flex;flex-direction:column;gap:5px;margin:6px 0 10px;}
+.pipe-step{background:#fff;border:1.5px solid var(--line);border-radius:9px;padding:6px 11px;font-size:11.8px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;}
+.pipe-step .pn{font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:800;color:var(--muted);min-width:14px;}
+.pipe-step b{color:var(--ink);font-size:12.2px;}
+.pipe-down{align-self:center;font-size:12px;color:#c9ccd9;font-weight:900;margin:-3px 0;}
+.pipe-details{display:flex;flex-direction:column;gap:6px;margin-top:2px;}
+.pipe-fact{font-size:11.6px;color:var(--ink-soft);line-height:1.45;display:flex;gap:6px;align-items:flex-start;}
+.pipe-fact b{color:var(--ink);}
+.pipe-stat-row{display:flex;gap:8px;margin-top:10px;}
+.pipe-stat{flex:1;background:#fff;border:1.5px solid var(--line);border-radius:9px;padding:7px 8px;text-align:center;}
+.pipe-stat .v{font-family:'Fraunces',serif;font-size:16px;font-weight:900;color:var(--ink);}
+.pipe-stat .l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;font-family:'JetBrains Mono',monospace;}
+.pipe-compare{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
+.pipe-compare .pc{border-radius:9px;padding:7px 9px;text-align:center;border:1.5px solid;}
+.pipe-compare .pc.win{background:#eafaf3;border-color:#2f9e6e;}
+.pipe-compare .pc.lose{background:#fdf3ec;border-color:#e3a36b;}
+.pipe-compare .pc .lbl{font-size:10.5px;font-weight:800;color:var(--ink);margin-bottom:3px;}
+.pipe-compare .pc .num{font-family:'JetBrains Mono',monospace;font-size:10.8px;color:var(--ink-soft);line-height:1.5;}
+.impl-note{margin-top:4px;}
+
+/* ════ SLIDE 5 — PIPELINE ════ */
+.flow{display:flex;align-items:stretch;gap:8px;flex-wrap:nowrap;}
+.flow-step{flex:1;min-width:0;background:#fff;border:1.5px solid var(--line);border-radius:13px;padding:13px 12px;display:flex;flex-direction:column;gap:7px;position:relative;}
+.flow-step .num{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:var(--fuse);}
+.flow-step b{font-size:13.5px;color:var(--ink);}
+.flow-step p{font-size:11.5px;color:var(--muted);line-height:1.4;}
+.flow-arrow{align-self:center;font-size:20px;color:#c9ccd9;font-weight:900;}
+.totals{display:flex;gap:14px;justify-content:center;}
+.total-c{background:#fff;border:1.5px solid var(--line);border-radius:13px;padding:12px 22px;text-align:center;min-width:130px;}
+.total-c .v{font-family:'Fraunces',serif;font-size:28px;font-weight:900;color:var(--ink);}
+.total-c .l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace;}
+.checks{display:flex;gap:10px;flex-wrap:wrap;}
+.check{font-size:12.5px;color:#0a6b62;background:var(--vision-bg);border:1.5px solid var(--vision-bc);border-radius:999px;padding:5px 13px;font-weight:600;}
+.example-row{background:#fff;border:1.5px solid var(--line);border-radius:13px;padding:13px 16px;font-size:13px;color:var(--ink-soft);line-height:1.7;}
+.example-row .k{font-weight:700;color:var(--ink);}
+
+/* ════ SLIDE 6 — ARCHITECTURE ════ */
+.arch{display:flex;flex-direction:column;gap:14px;}
+.branch{display:flex;align-items:center;gap:12px;}
+.branch .inp{width:160px;min-width:160px;font-size:13px;font-weight:700;text-align:right;color:var(--ink-soft);}
+.arch-arrow{font-size:18px;color:#c9ccd9;font-weight:900;}
+.model-box{padding:11px 18px;border-radius:12px;font-weight:800;font-size:14px;border:2px solid;}
+.model-box.t{background:var(--text-bg);border-color:var(--text-bc);color:#c23a18;}
+.model-box.v{background:var(--vision-bg);border-color:var(--vision-bc);color:#0a6b62;}
+.prob-vec{display:flex;gap:4px;}
+.pv{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;padding:4px 7px;border-radius:6px;color:#fff;}
+.pv.t{background:var(--text-bc);}.pv.v{background:var(--vision-bc);}
+.fuse-zone{display:flex;align-items:center;gap:14px;justify-content:center;background:var(--fuse-bg);border:1.5px solid #bda9f0;border-radius:14px;padding:16px;flex-wrap:wrap;}
+.fuse-in{font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700;color:#4a2bb0;background:#fff;border:1.5px solid #bda9f0;border-radius:9px;padding:7px 13px;}
+.mlp-box{padding:12px 22px;border-radius:12px;background:var(--fuse);color:#fff;font-weight:800;font-size:15px;}
+.final-out{padding:11px 20px;border-radius:12px;background:var(--ink);color:#fff;font-weight:800;font-size:14px;}
+.four-out{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+.out-c{background:#fff;border:1.5px solid var(--line);border-radius:11px;padding:10px 12px;font-size:12.5px;}
+.out-c .n{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--fuse);font-weight:700;}
+.out-c b{font-size:13px;color:var(--ink);}
+
+/* ════ SLIDE 7 — TRAINING ════ */
+.train-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;}
+.mlp-stack{display:flex;flex-direction:column;gap:8px;align-items:center;}
+.mlp-layer{width:78%;text-align:center;padding:10px;border-radius:11px;font-weight:700;font-size:13px;border:2px solid var(--fuse);background:#fff;color:#4a2bb0;}
+.mlp-layer.drop{background:var(--fuse-bg);border-style:dashed;font-size:12px;color:#6c4ad6;width:60%;}
+.mlp-layer.out{background:var(--fuse);color:#fff;border-color:var(--fuse);}
+.mlp-down{font-size:16px;color:#c9ccd9;font-weight:900;}
+.safe-list{display:flex;flex-direction:column;gap:9px;}
+.safe-item{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--ink-soft);}
+.safe-item .ic{color:var(--vision);font-weight:900;}
+.best-card{background:var(--ink);color:#fff;border-radius:13px;padding:16px 20px;display:flex;gap:26px;align-items:center;justify-content:center;}
+.best-card .stat{text-align:center;}
+.best-card .stat .v{font-family:'Fraunces',serif;font-size:30px;font-weight:900;}
+.best-card .stat .l{font-size:11px;color:#aab;text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace;}
+
+/* ════ SLIDE 8 — RESULTS ════ */
+.res-grid{display:grid;grid-template-columns:1.25fr .75fr;gap:22px;align-items:stretch;}
+.bars{display:flex;flex-direction:column;gap:14px;justify-content:center;padding:20px 22px;}
+.bar-row{display:flex;align-items:center;gap:12px;}
+.bar-lbl{width:138px;min-width:138px;font-size:13px;font-weight:700;color:var(--ink-soft);text-align:right;}
+.bar-track{flex:1;height:30px;background:#f0eee6;border-radius:8px;overflow:hidden;position:relative;}
+.bar-fill{height:100%;width:0;border-radius:8px;transition:width 1s cubic-bezier(.22,1,.36,1);display:flex;align-items:center;justify-content:flex-end;padding-right:9px;color:#fff;font-weight:800;font-size:12.5px;font-family:'JetBrains Mono',monospace;}
+.bf-text{background:var(--text-bc);}.bf-img{background:var(--vision-bc);}
+.bf-wavg{background:#9b82e8;}.bf-mlp{background:var(--fuse);}
+.res-side{display:flex;flex-direction:column;gap:12px;justify-content:center;}
+.class-box{background:#fff;border:1.5px solid var(--line);border-radius:13px;padding:14px 16px;font-size:13px;color:var(--ink-soft);line-height:1.6;}
+.class-box .strong{color:#0a6b62;font-weight:700;}.class-box .hard{color:#c23a18;font-weight:700;}
+.f1-strip{display:flex;flex-direction:column;gap:5px;}
+.f1-row{display:flex;align-items:center;gap:8px;}
+.f1-label{width:56px;min-width:56px;font-size:11px;font-weight:700;color:var(--ink-soft);text-align:right;}
+.f1-track{flex:1;height:14px;background:#f0eee6;border-radius:5px;overflow:hidden;}
+.f1-fill{height:100%;border-radius:5px;}
+.f1-value{width:30px;min-width:30px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--ink);text-align:right;}
+.res-msgs{display:flex;flex-direction:column;gap:7px;}
+.res-msg{font-size:12.5px;color:var(--ink-soft);padding-left:18px;position:relative;line-height:1.45;}
+.res-msg::before{content:'→';position:absolute;left:0;color:var(--fuse);font-weight:900;}
+
+/* ════ SLIDE 9 — DEMO ════ */
+#s9{padding:10px 24px 28px;}
+#s9 .wrap{max-width:none;width:100%;}
+.demo9-wrap{align-items:center;gap:2px;padding-top:2px;}
+.demo9-head{text-align:center;align-items:center;gap:0px;margin-bottom:2px;}
+.demo9-head .eyebrow{font-size:8px;letter-spacing:3px;}
+.demo9-head .s-h{font-size:18px !important;line-height:1.0;margin-bottom:2px;}
+.demo9-intro{font-size:9px;color:var(--ink-soft);text-align:center;margin-top:0;line-height:1.1;}
+.demo9-carousel{display:flex;flex-direction:column;align-items:center;gap:2px;width:100%;}
+.demo9-tag{font-family:'JetBrains Mono',monospace;font-size:8.5px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:999px;padding:1px 9px;}
+.demo9-frame{display:none;flex-direction:column;align-items:center;gap:3px;width:100%;}
+.demo9-frame.active{display:flex;}
+.demo9-frame img{display:block;width:min(98vw, 1720px);height:auto;max-width:calc(100vw - 18px);max-height:calc(100vh - 130px);border-radius:8px;border:1.2px solid var(--line);box-shadow:0 8px 20px rgba(21,24,43,.08);object-fit:contain;background:#fff;}
+.demo9-cap{font-size:10.5px;color:var(--ink);font-weight:700;text-align:center;max-width:1720px;line-height:1.15;padding:0 10px;}
+.demo9-nav{display:flex;gap:7px;align-items:center;margin-top:0;}
+.demo9-btn{padding:4px 13px;border-radius:999px;border:1.5px solid var(--line);font-size:10.5px;font-weight:700;cursor:pointer;background:#fff;color:var(--ink-soft);transition:all .2s;}
+.demo9-btn:hover:not(:disabled){border-color:#bda9f0;}
+.demo9-btn.primary{background:var(--fuse);color:#fff;border-color:var(--fuse);}
+.demo9-btn.primary:hover:not(:disabled){background:#5639bf;}
+.demo9-btn:disabled{opacity:.35;cursor:not-allowed;}
+
+/* ════ SLIDE 10 — LIMITATIONS ════ */
+.lim-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+.lim-card{background:#fff;border:1.5px solid var(--line);border-radius:13px;padding:13px 16px;display:flex;flex-direction:column;gap:5px;border-left:4px solid #f6b87a;}
+.lim-card .n{font-family:'JetBrains Mono',monospace;font-size:11px;color:#c2790c;font-weight:700;}
+.lim-card b{font-size:14px;color:var(--ink);}
+.lim-card p{font-size:12.5px;color:var(--muted);line-height:1.4;}
+.lim-card.priv{border-left-color:var(--fuse);}
+.lim-card.priv .n{color:var(--fuse);}
+.wlearned{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.wl-col{border-radius:13px;padding:13px 16px;}
+.wl-col.good{background:var(--vision-bg);border:1.5px solid var(--vision-bc);}
+.wl-col.bad{background:#fff7ed;border:1.5px solid #f6b87a;}
+.wl-col h4{font-size:13px;margin-bottom:7px;}
+.wl-col.good h4{color:#0a6b62;}.wl-col.bad h4{color:#7c3a06;}
+.wl-col ul{list-style:none;display:flex;flex-direction:column;gap:5px;}
+.wl-col li{font-size:12.5px;color:var(--ink-soft);padding-left:15px;position:relative;}
+.wl-col.good li::before{content:'✓';position:absolute;left:0;color:var(--vision);font-weight:900;}
+.wl-col.bad li::before{content:'△';position:absolute;left:0;color:#c2790c;font-weight:900;}
+
+/* ════ SLIDE 11 — CONCLUSION ════ */
+.concl-flow{display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap;}
+.cf-node{padding:11px 18px;border-radius:11px;font-weight:700;font-size:14px;border:2px solid var(--line);background:#fff;color:var(--ink);}
+.cf-node.t{border-color:var(--text-bc);color:#c23a18;background:var(--text-bg);}
+.cf-node.v{border-color:var(--vision-bc);color:#0a6b62;background:var(--vision-bg);}
+.cf-node.f{border-color:var(--fuse);color:#4a2bb0;background:var(--fuse-bg);}
+.cf-arrow{font-size:20px;color:var(--muted);font-weight:900;}
+.concl-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+.concl-col h4{font-family:'Fraunces',serif;font-size:18px;margin-bottom:9px;color:var(--ink);}
+.concl-col ul{list-style:none;display:flex;flex-direction:column;gap:6px;}
+.concl-col li{font-size:13px;color:var(--ink-soft);padding-left:18px;position:relative;line-height:1.4;}
+.concl-col li::before{content:'';position:absolute;left:0;top:6px;width:7px;height:7px;border-radius:50%;background:var(--fuse);}
+.concl-col.steps li::before{content:counter(step);counter-increment:step;background:var(--fuse);color:#fff;font-size:9px;font-weight:800;width:15px;height:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;top:2px;font-family:'JetBrains Mono',monospace;}
+.concl-col.steps{counter-reset:step;}
+.result-banner{background:var(--ink);color:#fff;border-radius:13px;padding:14px 20px;text-align:center;font-size:14px;}
+.result-banner b{font-family:'Fraunces',serif;font-size:22px;color:#ffb59e;}
+.end-q{font-family:'Fraunces',serif;font-style:italic;font-size:20px;color:var(--ink);text-align:center;line-height:1.45;max-width:760px;margin:0 auto;}
+
+/* Slide 10 compact final layout */
+#s10{padding:44px 72px 56px;}
+#s10 .wrap{gap:14px;}
+#s10 .head-row .s-h{font-size:31px;}
+#s10 .lim-grid{grid-template-columns:repeat(3,1fr);gap:10px;}
+#s10 .lim-card{padding:11px 14px;min-height:92px;}
+#s10 .lim-card b{font-size:13.5px;}
+#s10 .lim-card p{font-size:11.8px;line-height:1.35;}
+#s10 .wlearned{grid-template-columns:1fr 1.15fr;gap:14px;}
+#s10 .wl-col{padding:12px 15px;}
+#s10 .wl-col h4{font-size:13.5px;margin-bottom:7px;}
+#s10 .wl-col ul{gap:4px;}
+#s10 .wl-col li{font-size:12px;line-height:1.32;}
+
+@media (max-width:1100px){
+  .slide{padding:40px 28px 60px;}
+  .why-grid,.four-out{grid-template-columns:repeat(2,1fr);}
+  .ambig,.src-row,.train-grid,.res-grid,.demo-grid,.wlearned,.concl-grid{grid-template-columns:1fr !important;}
+  .flow{flex-wrap:wrap;}.flow-arrow{display:none;}
+}
+</style>
+</head>
+<body>
+<canvas id="draw-canvas"></canvas>
+<div id="draw-cursor"></div>
+
+<!-- TOOLBAR -->
+<div id="toolbar">
+  <div class="tb active" id="btn-pointer" onclick="setMode('pointer')">🖱️</div>
+  <div class="tb" id="btn-pen"    onclick="setMode('pen')">✏️</div>
+  <div class="tb" id="btn-eraser" onclick="setMode('eraser')">🧹</div>
+  <div class="tb"                 onclick="clearAll()">🗑️</div>
+  <div class="tdiv"></div>
+  <div class="cb active" id="col-r" style="background:#ff6b4a" onclick="setColor('#ff6b4a','col-r')"></div>
+  <div class="cb"        id="col-b" style="background:#0f9b8e" onclick="setColor('#0f9b8e','col-b')"></div>
+  <div class="cb"        id="col-v" style="background:#6c4ad6" onclick="setColor('#6c4ad6','col-v')"></div>
+  <div class="cb"        id="col-y" style="background:#f59e0b" onclick="setColor('#f59e0b','col-y')"></div>
+  <div class="cb"        id="col-d" style="background:#15182b;border-color:rgba(255,255,255,0.4)" onclick="setColor('#15182b','col-d')"></div>
+  <div class="tdiv"></div>
+  <div class="sb active" id="sz-s" style="width:9px;height:9px;"   onclick="setSize(3,'sz-s')"></div>
+  <div class="sb"        id="sz-m" style="width:14px;height:14px;" onclick="setSize(6,'sz-m')"></div>
+  <div class="sb"        id="sz-l" style="width:20px;height:20px;" onclick="setSize(13,'sz-l')"></div>
+</div>
+
+<!-- NAV -->
+<div class="nav">
+  <button class="nbtn pb" onclick="prevSlide()">←</button>
+  <button class="nbtn nb" onclick="nextStep()">→</button>
+</div>
+<div class="info-bar" id="info-bar">Press → to advance</div>
+<div class="counter" id="counter">Slide 1 / 10</div>
+
+<!-- ════ SLIDE 1 — TITLE ════ -->
+<div class="slide active" id="s1">
+  <div class="s1c">
+    <div class="s1-tag eyebrow">CS 5369L · Machine Learning Applications</div>
+    <div class="s1-title">Emotion Detection from<br><span class="t">Text</span> and <span class="v">Images</span></div>
+    <div class="s1-sub">MELD + FER2013 Multimodal Classification</div>
+    <div class="s1-pipe">
+      <div class="s1-chip t">Dialogue context</div>
+      <div class="s1-arrow">+</div>
+      <div class="s1-chip v">Facial image</div>
+      <div class="s1-arrow">→</div>
+      <div class="s1-chip f">Emotion: happy / sad / angry …</div>
+    </div>
+    <div class="s1-q">"Can combining dialogue context and facial expression improve emotion prediction?"</div>
+    <div class="s1-meta">
+      <div>Team members: <b>Maham Asif</b> and <b>Shruthi Nair</b></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 2 — PROBLEM ════ -->
+<div class="slide" id="s2">
+  <div class="wrap">
+    <div class="head-row">
+      <div class="eyebrow rv" id="s2-eb">The problem · why it matters</div>
+      <div class="s-h rv" id="s2-h" style="font-size:30px;">Why <span class="tag-f">Multimodal</span> Emotion Detection?</div>
+    </div>
+    <div class="prob-grid">
+      <div class="rv" id="s2-left" style="display:flex;flex-direction:column;gap:14px;">
+        <div class="channel-row">
+          <div class="channel-card"><span class="ic">🗣️</span><div><b>Text</b><span>what is said</span></div></div>
+          <div class="channel-card"><span class="ic">🎵</span><div><b>Audio</b><span>tone, pitch, pacing</span></div></div>
+          <div class="channel-card"><span class="ic">📷</span><div><b>Image / Video</b><span>facial expression</span></div></div>
+        </div>
+        <div class="mm-note">
+          <div class="mm-title">Real-world emotion is multimodal.</div>
+          <span class="scope-pill">This project uses 2 of 3 — text &amp; image</span>
+          <div class="audio-note">Audio is left for future work.</div>
+        </div>
+      </div>
+      <div class="rv scenario-col" id="s2-scenarios">
+        <div class="scenario-box s1">
+          <div class="sb-title">🚨 Emergency &amp; Mental Health Support</div>
+          Someone may write "I'm okay" while their expression shows sadness or fear — text alone can miss it.
+        </div>
+        <div class="scenario-box s2">
+          <div class="sb-title">📊 Product Launches &amp; Social Media</div>
+          Reviews and comments combine text and images — a text-only or image-only system can miss the full picture.
+        </div>
+        <div class="scenario-box s1">
+          <div class="sb-title">♿ Accessibility &amp; Sentiment Monitoring</div>
+          Support tools that rely on text alone can miss emotional cues from users who communicate differently or can't always describe how they feel in words.
+        </div>
+      </div>
+    </div>
+    <div class="ex-strip rv" id="s2-examples">
+      <div class="ex-card">
+        <div class="ex-col"><div class="ex-h">Text</div><div class="ex-bubble">💬</div><div class="ex-text">"Yeah, I tried it."</div></div>
+        <div class="ex-col"><div class="ex-h">Face cue</div><img class="ex-face" src="data:image/jpeg;base64,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"/></div>
+        <div class="ex-col"><div class="ex-h">Predicted</div><div class="ex-pred disgust">Disgust</div></div>
+      </div>
+      <div class="ex-card">
+        <div class="ex-col"><div class="ex-h">Text</div><div class="ex-bubble">💬</div><div class="ex-text">"That's the result?"</div></div>
+        <div class="ex-col"><div class="ex-h">Face cue</div><img class="ex-face" src="data:image/jpeg;base64,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"/></div>
+        <div class="ex-col"><div class="ex-h">Predicted</div><div class="ex-pred surprise">Surprise</div></div>
+      </div>
+    </div>
+    <div class="ex-foot rv" id="s2-foot">ℹ️ These are only a few examples — many more real-world cases need both text and facial cues.</div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 3 — DATA ════ -->
+<div class="slide" id="s3">
+  <div class="wrap">
+    <div class="head-row">
+      <div class="eyebrow rv" id="s3-eb">Data · experimental design</div>
+      <div class="s-h rv" id="s3-h" style="font-size:30px;">Dataset &amp; Input</div>
+      <div class="lead rv" id="s3-sub">Two datasets were used: MELD for dialogue text and FER-2013 for facial expression images.</div>
+    </div>
+    <div class="ds-grid rv" id="s3-meld">
+      <div class="ds-card t">
+        <h3>MELD — Dialogue Text</h3>
+        <div class="ds-fact-list">
+          <div class="ds-fact"><span class="mi">💬</span><span>Dialogue utterances from conversations</span></div>
+          <div class="ds-fact"><span class="mi">🗄️</span><span><b>Train:</b> 9,989 &nbsp;·&nbsp; <b>Val:</b> 1,109 &nbsp;·&nbsp; <b>Test:</b> 2,610</span></div>
+          <div class="ds-fact"><span class="mi">🔗</span><span><b>Input to text model:</b> current utterance + previous dialogue context</span></div>
+          <div class="ds-fact"><span class="mi">🏷️</span><span>Emotion labels mapped to the shared label format</span></div>
+        </div>
+        <div class="ctx-box">
+          <div class="ctx-title">Example MELD Utterances</div>
+          <div class="ctx-row"><div class="ctx-num">1</div><div>"Yeah, save it for the cab, okay."</div><div class="ctx-pill disgust">Disgust</div></div>
+          <div class="ctx-row"><div class="ctx-num">2</div><div>"What are you doing? We're going to a hospital."</div><div class="ctx-pill surprise">Surprise</div></div>
+          <div class="ctx-row"><div class="ctx-num">3</div><div>"Joey, get out of the fridge."</div><div class="ctx-pill angry">Angry</div></div>
+          <div class="ctx-row"><div class="ctx-num">4</div><div>"All right, all right."</div><div class="ctx-pill angry">Angry</div></div>
+          <div class="ctx-row"><div class="ctx-num">5</div><div>"What is that?"</div><div class="ctx-pill surprise">Surprise</div></div>
+          <div class="ctx-note"><span>💡</span><span><b>Why context matters:</b> the model can use the current utterance plus previous utterances, so it learns emotion from conversation context, not only one sentence.</span></div>
+        </div>
+      </div>
+      <div class="ds-card v">
+        <h3>FER-2013 — Facial Images</h3>
+        <div class="ds-fact-list">
+          <div class="ds-fact"><span class="mi">🖼️</span><span>48×48 grayscale facial expression images</span></div>
+          <div class="ds-fact"><span class="mi">🗄️</span><span><b>Train:</b> 28,709 &nbsp;·&nbsp; <b>Test:</b> 7,178</span></div>
+          <div class="ds-fact"><span class="mi">🙂</span><span><b>Input to image model:</b> facial expression image</span></div>
+          <div class="ds-fact"><span class="mi">🏷️</span><span>Same 7 emotion categories after label alignment</span></div>
+        </div>
+        <div class="face-box">
+          <div class="face-sample"><img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/wAALCAAwADABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APxv8IaLCbWR5WjaUqvGeAM7iP0rpp/BwudBsA6hZZQqSktjvuYfzqXUPg/HqtzFYR3UcUiiPfvPBZiMj8Ktr8ErCJniuL9Y2iBDNwfnB5r3H/gnL4yuP2eP2otA1m4u0XT9Y1OLTbvLYDQ3B8o/XBZWH+7X7OWVuGzG55U4P1r+eTw18AfjTrvi/RfD/hjwVfPc6xZxuvlwMUhjkcqryMBhR3yexFfVvhD/AIJI/tZeLrGK38NWdvdra3RWW7nuY4InjAxuQzuhcn2GBzz2r2PwR/wT2/YPtdc0rwF+0r4w+KvhPxfaTbJlC2q6fqE/mAoUuIlmTA+7gEAjnOa3fi7/AMETPAFjLqh+GP7RGsJDIktxpsOrabFJ5chJcRtKjAtGCQM7c4Hevhn4kfB742fBD9orwh4C8WWkTSf8JTp8UNxp1yJY5n+0x7cEcjORgMAfav3ltLYq7gJyZCxz9TXw1+xjPpUpsrEqg/cqjMByR6Zr2j9pn4NftH3nhq31b9nr4iWWnOJla6ttR05545I8g8bWx9QysPbtXNaL+zl8TfFvirQ7wTXWoQPZK/ie91Hw/b6elpeLj5bf7O+y5g6gF4o5Afm6EqvR/tiaz8RPhz4G03S/h7p95qN1PbEXNzbQmRraFSA8m0Ak7QcnAPHODivnD9jD9n7w74o/a9juvGXwyt7mXw1o1r4lTXpLwXj/AGy5GbZJZYpGjWdMyM8TYZGjAwcA1+jdhbOSCBX5p/sueKTpk8Myy4zD19a/QT4GfHX4c2PgWS38e3ZlfZmERnlTirOs/HrSNItEubnRn07Sr67SC3v9UmWCLc2du5j90HBwTjNcX8etRtNCj0LxNd6pYTWtxdNDFJa3SSxlHGCuQcen1rA/Zl0rwzpfxB8V2HhjTYrYSw2c12YRgM26ULkeuM19AabGyt8w61+Of7NnxN0vUfsitcqrcBgW5Ffcnw30LVdU8Km88Dx6dcas6K1j/aYbyN/o+zBx16d+9e/eHvhX+0J8QPCd74Pn0T4XeM554jG+kRapdadOExwTHcZVuQ2Mjb8ud3p8FfEb9m34t/C/9pi1+HXjbwZrfhbT7ayl12aw1HVxPaadb4IEixxyMu9ySiR8EknA4zX2J+yb8HNR+G3gN9W8WO8mu67Kt1qIlPNugBENv/wBD83q7N6CvY7KEIM47YFfiP8AH34Ca/8AAjxT/wAJn8Oo5G0y5cSyWakkRknJ2+3tX1h/wTo/ai8IePRB4J1bXEtNUGFWK4fa24fXrX1r8Zk+IY0aGDwZr9vDcD54luFDruAxlT96MkddpAI6g8V8/wDww1/wd/w0FIn7Q3xS0DT9bljik0PQLrUBEb5hIcSfvT+9CuoIBOSwXAwgFfYNi2Il2kEY4rI1b4n33hbxDFay6HDcW8DF7m0kdhJNEBw4KkYQ+o5BBBr/2Q=="/><span class="label">Happy</span></div>
+          <div class="face-sample"><img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/wAALCAAwADABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/APwv+G6tb6vJrCwrItnGGcEZ4JA49zwv416V4U+EOp/EqK51XSLSPzLia4dEi6Aom7AHoM5+grvtK/4J2/FHULjUNWto0WDTriK2ud3BSR9oRv8Ad3Fc+x9q5X4p/sXfEP4b38VzdwKiPGHlKsN1pIGw6ODyPUHoQD6GvPviDHDo+zR5ZrC9Kx7Zrm0OWikUk43L94EHn6cVi3VgdGc2k2VGxZI2YfeRwGB/Wl+HOp6fYz3ljqKki6ijEJBxiRHDD/D8a+6f2Yv2H/2o/Cd6+qeHvhdd6npjrFeaLqwuYTaXCOpIjmQuJIWMbmNvlIBHpzX2p8JvBPxe8URt4c1j9nzWdGnktBb6ld6msawTxgYAZwSspA/iXnuOteOft0f8E/8A49+NNMSDw55eryW9oPIllvljulxk7AWxvHTnPPcc1+W3in4d+KPCfxI/4Qjxrp09hfJqIgu7e5iKSId2CCpxg/45HFd98VPhZBb+H0v7SWNpNHt7e3nRWyXhMaur/wDsv4CvPvg5d2fh7x3oPie9UNHa6os0wNms+0Dhf3bEK/zdQTX7kfsUfFbx/c63YfDn4keGbSGw1Owku9B1ayjMcd4kcUTsjROSyMPNIHY+WemQK7L4q3vxc1zxTqC+BfGlzFJBAp0TQ7dDDDLJvCsZpV+bGN2BkDOOgr0fw94a8Vz+Goj8RreyGo+UDNLZTSGMuAM4DsT1/OvzL/4Lf/DzR/Cnirwp8UPCmm2zajevNaXkRhUs6xRlhJnrlQTz7Cvjfw54huLjwzcaV4qnaOe+0iW2iEqkFtudg98EAV5L4O8XP4c1GyvGiWSO01CG4dGXO5VkRyv0+Wv3X/Y613wv8Vfi2/iPw7Kl1b6f4Os57cKwCRfbWd1CDoo2Q819LE+GEvkN/pqxghcXSgYDEdCe2aveJNX01rJYrKJY0jTaFB5z6k96/NT/AILUW8Fn4P8AC/j1JUkm0vXZUhgkTcJWlhIH/fJUGvzr+NfiC81rXIpbSz+ztY2cccoiTaPM3bmP/j2K8pt0+fOQB3Jr7w/4JiftA+JNH1Gw+HVvrZ03xJo6Z0923Ea7ochJezdQyiSS3kbzYhncFkcDpg/qxe/FPwlovhmLTn8e2N3cPEpaN9LlRNpXcGkZ2yqlcHOPXiqnhT4gyeJPBsGq6jbyWTy26SLbTvudEZdygnvwcZ9q/Pj/AIKtfF3wr4o8a+F/h1qV7ss9IuG1K+i6tKchY0x7jd+FfL3xg1L4V3V7dazorql9d3MNzqFk0R22sUj4KqxPzFV2E8cZPPUD5oUMPm64FdF4e8b6noMljrejXk1pq2k3gubC8iPOR2znjoB6YzX6+fBv4uf8NIfD3wx4s1TwVbagt5o9q1zqsd5uQ7cbhs3ArhgyspGQVK+51/2sf2v/AAF+zV4Xa68Qanby67e2rf2RoqS/PccgB2ABKxjnLfgMmvy78f6v4t8c/EK/+JPjO4mu5TE95PJJKGAmYfulboEXJXC9Qq461zvhHwJ8Svil4ln0zQLKVDZxm5u7m4G0RoFwC/B+90C9y2Mc1//Z"/><span class="label">Angry</span></div>
+          <div class="face-sample"><img src="data:image/jpeg;base64,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"/><span class="label">Surprise</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="ds-bottom rv" id="s3-bottom">
+      <div class="ds-shared-row"><span>🏷️</span><span><b>Shared labels:</b> angry, disgust, fear, happy, neutral, sad, surprise</span></div>
+      <div class="ds-shared-row"><span>🎯</span><span><b>Why this matters:</b> both datasets were mapped to the same 7 labels so their predictions could later be combined.</span></div>
+      <div class="imb-card">
+        <div class="imb-col">
+          <span class="title">MELD — Class Imbalance</span>
+          <div class="line">Dominant: <b>Neutral — 47%</b></div>
+          <div class="line">Rare: <b>Fear — 3%</b>, <b>Disgust — 3%</b></div>
+        </div>
+        <div class="imb-col">
+          <span class="title">FER-2013 — Class Imbalance</span>
+          <div class="line">Dominant: <b>Happy — 25%</b></div>
+          <div class="line">Rare: <b>Disgust — 2%</b></div>
+        </div>
+      </div>
+      <div class="imb-foot">Because of this imbalance, <b>text and fusion training used class weights</b>, and we evaluated everything with <b>weighted F1</b> rather than relying on accuracy alone.</div>
+    </div>
+    <div class="callout warn rv" id="s3-warn">
+      <b>⚠ Important design note:</b> Text and image were paired by the <b>same label</b>, not taken from the same original scene. <b>Label-aligned pairs ≠ real synchronized text + face pairs.</b>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 4 — TEXT/IMAGE MODEL IMPLEMENTATION ════ -->
+<div class="slide" id="s4">
+  <div class="wrap">
+    <div class="head-row">
+      <div class="eyebrow rv" id="s4-eb">Implementation · before fusion</div>
+      <div class="s-h rv" id="s4-h" style="font-size:30px;">Building the Text and Image Models</div>
+    </div>
+    <div class="impl-grid">
+      <div class="card impl-card t rv" id="s4-text">
+        <h3>Text Model: MELD + RoBERTa</h3>
+        <div class="pipe-flow">
+          <div class="pipe-step"><span class="pn">01</span><b>Clean MELD text</b></div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">02</span><b>Token analysis</b></div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">03</span><b>Context windows</b> — tested 1 / 3 / 5</div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">04</span><b>Select window 5</b> — best val. weighted F1: 0.620</div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">05</span><b>Optuna tuning</b> — 10 trials</div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">06</span><b>Save final text model</b></div>
+        </div>
+        <div class="pipe-details">
+          <div class="pipe-fact"><span>•</span><span>RoBERTa (<b>roberta-base</b>) fine-tuned on MELD dialogue text</span></div>
+          <div class="pipe-fact"><span>•</span><span>Window 5's 95th-percentile token count (95) stays comfortably under RoBERTa's <b>128-token</b> limit</span></div>
+          <div class="pipe-fact"><span>•</span><span>Optuna searched <b>learning rate, batch size, weight decay, epochs, class_weight_alpha</b> across 10 trials</span></div>
+        </div>
+        <div class="pipe-stat-row">
+          <div class="pipe-stat"><div class="v">63.5%</div><div class="l">Precision</div></div>
+          <div class="pipe-stat"><div class="v">61.8%</div><div class="l">Recall</div></div>
+          <div class="pipe-stat"><div class="v">62.3%</div><div class="l">F1</div></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:4px;">On held-out MELD test set (2,610 utterances)</div>
+      </div>
+      <div class="card impl-card v rv" id="s4-image">
+        <h3>Image Model: FER-2013 + CNN</h3>
+        <div class="pipe-flow">
+          <div class="pipe-step"><span class="pn">01</span><b>Normalize images</b> — 0–255 → 0–1</div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">02</span><b>Augment train images</b> — rotation, shift, flip, zoom</div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">03</span><b>Train Custom CNN</b></div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">04</span><b>Train MobileNetV2</b> — ImageNet transfer learning</div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">05</span><b>Compare</b> — Custom CNN vs MobileNetV2</div>
+          <div class="pipe-down">↓</div>
+          <div class="pipe-step"><span class="pn">06</span><b>Select Custom CNN</b></div>
+        </div>
+        <div class="pipe-details">
+          <div class="pipe-fact"><span>•</span><span>Test images normalized only — <b>no augmentation</b> — to keep evaluation realistic</span></div>
+          <div class="pipe-fact"><span>•</span><span>MobileNetV2's frozen <b>ImageNet</b> features (color, real-world photos) transferred poorly to 48×48 grayscale faces</span></div>
+        </div>
+        <div class="pipe-compare">
+          <div class="pc win"><div class="lbl">Custom CNN ✓</div><div class="num">P 67% · R 68%</div><div class="num">F1 67%</div></div>
+          <div class="pc lose"><div class="lbl">MobileNetV2</div><div class="num">P 38% · R 40%</div><div class="num">F1 35%</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="callout note impl-note rv" id="s4-note">
+      Both trained models were saved and later loaded into the fusion notebook.
+    </div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 5 — FUSION DATASET ════ -->
+<div class="slide" id="s5">
+  <div class="wrap">
+    <div class="head-row">
+      <div class="eyebrow rv" id="s5-eb">Building the fusion dataset safely</div>
+      <div class="s-h rv" id="s5-h">From raw utterances to verified fusion rows</div>
+    </div>
+    <div class="flow rv" id="s5-flow">
+      <div class="flow-step"><span class="num">01</span><b>Clean text</b><p>Fix corrupted characters and extra spaces.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><span class="num">02</span><b>Build context</b><p>Previous four utterances + current utterance.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><span class="num">03</span><b>Keep MELD splits</b><p>Official train / dev / test, no dialogue leakage.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><span class="num">04</span><b>Pair by label</b><p>Match a same-label FER image to each text sample.</p></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><span class="num">05</span><b>Verify data</b><p>Check the created data is valid.</p></div>
+    </div>
+    <div class="totals rv" id="s5-totals">
+      <div class="total-c"><div class="v">5,222</div><div class="l">Train</div></div>
+      <div class="total-c"><div class="v">1,109</div><div class="l">Validation</div></div>
+      <div class="total-c"><div class="v">2,354</div><div class="l">Test</div></div>
+    </div>
+    <div class="checks rv" id="s5-checks">
+      <span class="check">✓ No duplicate MELD utterance within a split</span>
+      <span class="check">✓ No duplicate FER image path within a split</span>
+      <span class="check">✓ Image paths existed</span>
+    </div>
+    <div class="example-row rv" id="s5-ex">
+      <span class="k">Previous context:</span> "Wait, are you serious?" &nbsp;·&nbsp;
+      <span class="k">Current utterance:</span> "That came out of nowhere." &nbsp;·&nbsp;
+      <span class="k">Image label:</span> surprise &nbsp;→&nbsp; <span class="k">Final training label:</span> <b style="color:var(--fuse)">surprise</b>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 6 — ARCHITECTURE ════ -->
+<div class="slide" id="s6">
+  <div class="wrap">
+    <div class="head-row">
+      <div class="eyebrow rv" id="s6-eb">System architecture</div>
+      <div class="s-h rv" id="s6-h">Four predictions, one final decision</div>
+    </div>
+    <div class="arch">
+      <div class="branch rv" id="s6-tbranch">
+        <div class="inp">Dialogue context</div>
+        <div class="arch-arrow">→</div>
+        <div class="model-box t">Transformer text classifier</div>
+        <div class="arch-arrow">→</div>
+        <div class="prob-vec"><span class="pv t">0.70</span><span class="pv t">0.15</span><span class="pv t">…</span><span class="pv t">7 probs</span></div>
+      </div>
+      <div class="branch rv" id="s6-vbranch">
+        <div class="inp">Facial image</div>
+        <div class="arch-arrow">→</div>
+        <div class="model-box v">Custom CNN (FER2013)</div>
+        <div class="arch-arrow">→</div>
+        <div class="prob-vec"><span class="pv v">0.27</span><span class="pv v">0.13</span><span class="pv v">…</span><span class="pv v">7 probs</span></div>
+      </div>
+      <div class="fuse-zone rv" id="s6-fuse">
+        <div class="fuse-in">7 text probs + 7 image probs = 14 numbers</div>
+        <div class="arch-arrow">→</div>
+        <div class="mlp-box">MLP fusion</div>
+        <div class="arch-arrow">→</div>
+        <div class="final-out">Final emotion (1 of 7)</div>
+      </div>
+    </div>
+    <div class="four-out rv" id="s6-outs">
+      <div class="out-c"><div class="n">OUTPUT 1</div><b>Text-only prediction</b></div>
+      <div class="out-c"><div class="n">OUTPUT 2</div><b>Image-only prediction</b></div>
+      <div class="out-c"><div class="n">OUTPUT 3</div><b>Weighted average</b><div style="font-size:11px;color:var(--muted)">40% text + 60% image</div></div>
+      <div class="out-c"><div class="n">OUTPUT 4</div><b>MLP fusion classifier</b></div>
+    </div>
+    <div class="callout note rv" id="s6-note">
+      <b>Why 60% image?</b> The image branch got a slightly larger baseline weight because its earlier standalone metric was stronger. This approach is called <b>probability-level late fusion</b>.
+    </div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 7 — TRAINING ════ -->
+<div class="slide" id="s7">
+  <div class="wrap">
+    <div class="head-row">
+      <div class="eyebrow rv" id="s7-eb">Training the fusion classifier</div>
+      <div class="s-h rv" id="s7-h">A small MLP that learns who to trust</div>
+    </div>
+    <div class="train-grid">
+      <div class="card rv" id="s7-mlp" style="padding:18px;">
+        <div style="font-size:12.5px;font-weight:700;color:var(--ink-soft);text-align:center;margin-bottom:12px;">Input: 14 values (7 text + 7 image probabilities)</div>
+        <div class="mlp-stack">
+          <div class="mlp-layer">Dense 64</div>
+          <div class="mlp-down">↓</div>
+          <div class="mlp-layer drop">Dropout 0.30</div>
+          <div class="mlp-down">↓</div>
+          <div class="mlp-layer">Dense 32</div>
+          <div class="mlp-down">↓</div>
+          <div class="mlp-layer drop">Dropout 0.20</div>
+          <div class="mlp-down">↓</div>
+          <div class="mlp-layer">Dense 16</div>
+          <div class="mlp-down">↓</div>
+          <div class="mlp-layer out">Softmax → 7 emotions</div>
+        </div>
+      </div>
+      <div class="rv" id="s7-right" style="display:flex;flex-direction:column;gap:16px;">
+        <div>
+          <div style="font-size:13.5px;font-weight:700;color:var(--ink);margin-bottom:10px;">Training safeguards</div>
+          <div class="safe-list">
+            <div class="safe-item"><span class="ic">✓</span><div><b>Class weights</b> for imbalanced classes (fear, disgust are rarer).</div></div>
+            <div class="safe-item"><span class="ic">✓</span><div><b>Validation monitoring</b> and <b>early stopping</b>.</div></div>
+            <div class="safe-item"><span class="ic">✓</span><div><b>Best model checkpointing</b> — save the best, not the last epoch.</div></div>
+            <div class="safe-item"><span class="ic">✓</span><div><b>Comparison graphs</b> — used to compare fusion performance and choose the best checkpoint.</div></div>
+          </div>
+        </div>
+        <div class="best-card">
+          <div class="stat"><div class="v">Epoch 15</div><div class="l">Best checkpoint</div></div>
+          <div class="stat"><div class="v">0.793</div><div class="l">Validation weighted F1</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 8 — RESULTS ════ -->
+<div class="slide" id="s8">
+  <div class="wrap">
+    <div class="head-row">
+      <div class="eyebrow rv" id="s8-eb">Results · did fusion help?</div>
+      <div class="s-h rv" id="s8-h">Fusion improved weighted F1 over either single model</div>
+    </div>
+    <div class="res-grid">
+      <div class="card bars rv" id="s8-bars">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-bottom:2px;">WEIGHTED F1 · SAME 2,354-ITEM TEST SET</div>
+        <div class="bar-row"><div class="bar-lbl">Text-only</div><div class="bar-track"><div class="bar-fill bf-text" data-w="60.6">60.6%</div></div></div>
+        <div class="bar-row"><div class="bar-lbl">Image-only</div><div class="bar-track"><div class="bar-fill bf-img" data-w="74.1">74.1%</div></div></div>
+        <div class="bar-row"><div class="bar-lbl">Weighted average</div><div class="bar-track"><div class="bar-fill bf-wavg" data-w="79.2">79.2%</div></div></div>
+        <div class="bar-row"><div class="bar-lbl">MLP fusion</div><div class="bar-track"><div class="bar-fill bf-mlp" data-w="79.6">~79.6%</div></div></div>
+      </div>
+      <div class="res-side rv" id="s8-side">
+        <div class="callout note">
+          The <b>MLP</b> was selected as the final fusion model because it had the best weighted F1 — though the weighted-average baseline had slightly higher accuracy in the saved evaluation.
+        </div>
+        <div class="class-box">
+          <div style="font-size:11px;font-weight:700;color:var(--ink);margin-bottom:8px;font-family:'JetBrains Mono',monospace;">PER-EMOTION F1 · MLP FUSION MODEL TEST SET</div>
+          <div class="f1-strip">
+            <div class="f1-row"><div class="f1-label">Happy</div><div class="f1-track"><div class="f1-fill" style="width:86%;background:#0a6b62;"></div></div><div class="f1-value">0.86</div></div>
+            <div class="f1-row"><div class="f1-label">Surprise</div><div class="f1-track"><div class="f1-fill" style="width:86%;background:#0a6b62;"></div></div><div class="f1-value">0.86</div></div>
+            <div class="f1-row"><div class="f1-label">Neutral</div><div class="f1-track"><div class="f1-fill" style="width:86%;background:#0a6b62;"></div></div><div class="f1-value">0.86</div></div>
+            <div class="f1-row"><div class="f1-label">Angry</div><div class="f1-track"><div class="f1-fill" style="width:75%;background:#0a6b62;"></div></div><div class="f1-value">0.75</div></div>
+            <div class="f1-row"><div class="f1-label">Disgust</div><div class="f1-track"><div class="f1-fill" style="width:71%;background:#0a6b62;"></div></div><div class="f1-value">0.71</div></div>
+            <div class="f1-row"><div class="f1-label">Sad</div><div class="f1-track"><div class="f1-fill" style="width:51%;background:#e3a36b;"></div></div><div class="f1-value">0.51</div></div>
+            <div class="f1-row"><div class="f1-label">Fear</div><div class="f1-track"><div class="f1-fill" style="width:27%;background:#c23a18;"></div></div><div class="f1-value">0.27</div></div>
+          </div>
+          <div style="margin-top:8px;"><span class="strong">Stronger:</span> happy, surprise, neutral, angry, disgust &nbsp;·&nbsp; <span class="hard">Harder:</span> sad, fear</div>
+          <div style="margin-top:5px;color:var(--muted);">Fear had only <b>50</b> test examples — the smallest class.</div>
+        </div>
+      </div>
+    </div>
+    <div class="res-msgs rv" id="s8-msgs">
+      <div class="res-msg">Combining modalities helped more than either branch alone.</div>
+      <div class="res-msg">Weighted F1 is more meaningful than accuracy for an imbalanced seven-class dataset.</div>
+      <div class="res-msg">Some rare or subtle classes remain difficult.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 9 — DEMO ════ -->
+<div class="slide" id="s9">
+  <div class="wrap demo9-wrap">
+    <div class="head-row demo9-head">
+      <div class="eyebrow rv" id="s9-eb">Demo · qualitative walkthrough</div>
+      <div class="s-h rv" id="s9-h">Gradio Demo — Example-by-Example Observations</div>
+      <div class="demo9-intro rv" id="s9-intro">Each click shows one full Gradio screenshot, followed by the main observation from that example.</div>
+    </div>
+    <div id="s9-carousel" class="rv demo9-carousel">
+      <div class="demo9-tag" id="s9-progress">Example 1 of 5</div>
+      <div class="demo9-frame active" data-idx="0">
+        <img src="assets/slide9/happy_1.png" alt="Gradio demo example 1: Happy - all four models predicted correctly. This is a clean case, and happy is also one of the more common and visually clearer classes."/>
+        <div class="demo9-cap">Happy — all four models predicted correctly. This is a clean case, and happy is also one of the more common and visually clearer classes.</div>
+      </div>
+      <div class="demo9-frame" data-idx="1">
+        <img src="assets/slide9/angry_3.png" alt="Gradio demo example 2: Angry - the text-only model confused the tone as disgust, but the image model and both fusion methods corrected it to angry."/>
+        <div class="demo9-cap">Angry — the text-only model confused the tone as disgust, but the image model and both fusion methods corrected it to angry.</div>
+      </div>
+      <div class="demo9-frame" data-idx="2">
+        <img src="assets/slide9/disgust_2.png" alt="Gradio demo example 3: Disgust - the image-only model predicted fear, but the text signal helped both fusion methods correctly recover disgust."/>
+        <div class="demo9-cap">Disgust — the image-only model predicted fear, but the text signal helped both fusion methods correctly recover disgust.</div>
+      </div>
+      <div class="demo9-frame" data-idx="3">
+        <img src="assets/slide9/fear.png" alt="Gradio demo example 4: Fear failure case - all four models predicted sad instead of fear, showing that fear remains one of the hardest emotions for this system."/>
+        <div class="demo9-cap">Fear failure case — all four models predicted sad instead of fear, showing that fear remains one of the hardest emotions for this system.</div>
+      </div>
+      <div class="demo9-frame" data-idx="4">
+        <img src="assets/slide9/fear_2.png" alt="Gradio demo example 5: Fear recovered case - weighted average followed the image model toward surprise, but the MLP fusion classifier correctly predicted fear."/>
+        <div class="demo9-cap">Fear recovered case — weighted average followed the image model toward surprise, but the MLP fusion classifier correctly predicted fear.</div>
+      </div>
+      <div class="demo9-nav">
+        <button class="demo9-btn" id="s9-back">← Back</button>
+        <button class="demo9-btn primary" id="s9-next">Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 10 — LIMITATIONS ════ -->
+<div class="slide" id="s10">
+  <div class="wrap">
+    <div class="head-row">
+      <div class="eyebrow rv" id="s10-eb">Challenges · limitations · improvements</div>
+      <div class="s-h rv" id="s10-h">What this setup can and cannot claim</div>
+    </div>
+    <div class="lim-grid rv" id="s10-lims">
+      <div class="lim-card"><span class="n">01</span><b>Label-aligned, not truly paired</b><p>Text and images were matched by emotion label, not from the same MELD video moment.</p></div>
+      <div class="lim-card"><span class="n">02</span><b>Class imbalance</b><p>Fear and disgust remained difficult because they had fewer examples in both datasets.</p></div>
+      <div class="lim-card"><span class="n">03</span><b>Transfer learning underperformed</b><p>MobileNetV2 struggled because ImageNet color features did not transfer well to 48×48 grayscale faces.</p></div>
+      <div class="lim-card"><span class="n">04</span><b>Audio was not included</b><p>The project used text + image only; tone, pitch, and pacing are future work.</p></div>
+      <div class="lim-card priv"><span class="n">05</span><b>Training time / compute constraints</b><p>RoBERTa context experiments, Optuna trials, CNN training, and fusion training required significant Colab GPU time.</p></div>
+    </div>
+    <div class="wlearned rv" id="s10-wl">
+      <div class="wl-col good">
+        <h4>What worked</h4>
+        <ul>
+          <li>Context-aware RoBERTa text model</li>
+          <li>Custom CNN performed better than MobileNetV2</li>
+          <li>Probability-level fusion improved performance</li>
+          <li>MLP fusion gave the best weighted F1 / lowest loss</li>
+          <li>Gradio demo made the system testable</li>
+        </ul>
+      </div>
+      <div class="wl-col bad">
+        <h4>What must improve / future work</h4>
+        <ul>
+          <li>Use real MELD video frames instead of FER-2013 substitute images</li>
+          <li>Add audio to build text + image + audio emotion detection</li>
+          <li>Use embedding-level fusion instead of only probability-level fusion</li>
+          <li>Improve fear/disgust using oversampling, focal loss, or more data</li>
+          <li>Try fine-tuning MobileNetV2 instead of keeping it fully frozen</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SLIDE 11 — CONCLUSION ════ -->
+<div class="slide" id="s11">
+  <div class="wrap">
+    <div class="head-row">
+      <div class="eyebrow rv" id="s11-eb">Conclusion · next steps</div>
+      <div class="s-h rv" id="s11-h">One multimodal emotion-detection workflow</div>
+    </div>
+    <div class="concl-flow rv" id="s11-flow">
+      <div class="cf-node t">Text</div><div class="cf-arrow">+</div>
+      <div class="cf-node v">Face</div><div class="cf-arrow">→</div>
+      <div class="cf-node f">Fusion</div><div class="cf-arrow">→</div>
+      <div class="cf-node">Better emotion signal</div><div class="cf-arrow">→</div>
+      <div class="cf-node">Real MELD video + audio next</div>
+    </div>
+    <div class="result-banner rv" id="s11-banner">
+      Fusion improved weighted F1 to <b>~79.6%</b> on this label-aligned test setup, and the Gradio app made the result easy to test.
+    </div>
+    <div class="concl-grid rv" id="s11-grid">
+      <div class="concl-col">
+        <h4>What we built</h4>
+        <ul>
+          <li>Text classifier + image classifier + fusion model</li>
+          <li>Gradio demo for interactive prediction</li>
+        </ul>
+      </div>
+      <div class="concl-col steps">
+        <h4>Next steps</h4>
+        <ul>
+          <li>Use real MELD video frames instead of FER-2013 substitute images</li>
+          <li>Add audio to build text + image + audio emotion detection</li>
+          <li>Use embedding-level fusion instead of only probability-level fusion</li>
+          <li>Improve fear/disgust using oversampling, focal loss, or more data</li>
+          <li>Try fine-tuning MobileNetV2 instead of keeping it fully frozen</li>
+        </ul>
+      </div>
+    </div>
+    <div class="end-q rv" id="s11-q">"When text and facial expression disagree, which signal should the model trust — and why?"</div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════
+// DRAWING ENGINE
+// ══════════════════════════════════
+var dc=document.getElementById('draw-canvas'),dctx=dc.getContext('2d');
+var drawCursor=document.getElementById('draw-cursor');
+var drawing=false,mode='off',penColor='#ff6b4a',penSize=3,lx=0,ly=0;
+function updateDrawCursorStyle(){
+  if(mode==='off'){drawCursor.classList.remove('show');return;}
+  drawCursor.classList.toggle('eraser',mode==='eraser');
+}
+function moveDrawCursor(e){
+  if(mode==='off'){drawCursor.classList.remove('show');return;}
+  drawCursor.classList.add('show');
+  drawCursor.style.left=e.clientX+'px';drawCursor.style.top=e.clientY+'px';
+}
+function resizeDC(){var img=dctx.getImageData(0,0,dc.width,dc.height);dc.width=window.innerWidth;dc.height=window.innerHeight;dctx.putImageData(img,0,0);}
+resizeDC();window.addEventListener('resize',resizeDC);updateDrawCursorStyle();
+function setMode(m){if(m==='pointer'){mode='off';}else{mode=mode===m?'off':m;}dc.className=mode==='off'?'':(mode+'-on');['btn-pointer','btn-pen','btn-eraser'].forEach(function(id){var el=document.getElementById(id);if(el)el.classList.remove('active');});if(mode==='off')document.getElementById('btn-pointer').classList.add('active');if(mode==='pen')document.getElementById('btn-pen').classList.add('active');if(mode==='eraser')document.getElementById('btn-eraser').classList.add('active');updateDrawCursorStyle();}
+function setColor(c,id){penColor=c;document.querySelectorAll('.cb').forEach(function(b){b.classList.remove('active');});document.getElementById(id).classList.add('active');if(mode!=='pen')setMode('pen');updateDrawCursorStyle();}
+function setSize(s,id){penSize=s;document.querySelectorAll('.sb').forEach(function(b){b.classList.remove('active');});document.getElementById(id).classList.add('active');updateDrawCursorStyle();}
+function clearAll(){dctx.clearRect(0,0,dc.width,dc.height);}
+function getPos(e){var r=dc.getBoundingClientRect();if(e.touches)return{x:e.touches[0].clientX-r.left,y:e.touches[0].clientY-r.top};return{x:e.clientX-r.left,y:e.clientY-r.top};}
+document.addEventListener('mousemove',moveDrawCursor);
+dc.addEventListener('mouseleave',function(){drawing=false;drawCursor.classList.remove('show');});
+dc.addEventListener('mousedown',function(e){if(mode==='off')return;moveDrawCursor(e);drawing=true;var p=getPos(e);lx=p.x;ly=p.y;});
+dc.addEventListener('mousemove',function(e){if(!drawing||mode==='off')return;var p=getPos(e);dl(lx,ly,p.x,p.y);lx=p.x;ly=p.y;});
+dc.addEventListener('mouseup',function(){drawing=false;});
+dc.addEventListener('touchstart',function(e){e.preventDefault();if(mode==='off')return;moveDrawCursor(e);drawing=true;var p=getPos(e);lx=p.x;ly=p.y;},{passive:false});
+dc.addEventListener('touchmove',function(e){e.preventDefault();if(mode!=='off')moveDrawCursor(e);if(!drawing||mode==='off')return;var p=getPos(e);dl(lx,ly,p.x,p.y);lx=p.x;ly=p.y;},{passive:false});
+dc.addEventListener('touchend',function(){drawing=false;drawCursor.classList.remove('show');});
+function dl(x1,y1,x2,y2){dctx.beginPath();if(mode==='eraser'){dctx.globalCompositeOperation='destination-out';dctx.lineWidth=penSize*6;}else{dctx.globalCompositeOperation='source-over';dctx.strokeStyle=penColor;dctx.lineWidth=penSize;}dctx.lineCap='round';dctx.lineJoin='round';dctx.moveTo(x1,y1);dctx.lineTo(x2,y2);dctx.stroke();dctx.globalCompositeOperation='source-over';}
+
+// ══════════════════════════════════
+// SLIDE NAVIGATION (stepped reveals)
+// ══════════════════════════════════
+var TOTAL=11;
+var curSlide=1;
+// step definitions: each slide => ordered list of element-id groups to reveal
+var STEPS={
+  1:[],
+  2:[['s2-eb','s2-h'],['s2-left'],['s2-scenarios'],['s2-examples','s2-foot']],
+  3:[['s3-eb','s3-h','s3-sub'],['s3-meld'],['s3-bottom','s3-warn']],
+  4:[['s4-eb','s4-h','s4-text','s4-image','s4-note']],
+  5:[['s5-eb','s5-h'],['s5-flow'],['s5-totals','s5-checks','s5-ex']],
+  6:[['s6-eb','s6-h'],['s6-tbranch'],['s6-vbranch'],['s6-fuse'],['s6-outs','s6-note']],
+  7:[['s7-eb','s7-h','s7-mlp','s7-right']],
+  8:[['s8-eb','s8-h','s8-bars','s8-side','s8-msgs']],
+  9:[['s9-eb','s9-h','s9-intro','s9-carousel']],
+  10:[['s10-eb','s10-h','s10-lims','s10-wl']],
+  11:[['s11-eb','s11-h'],['s11-flow'],['s11-banner'],['s11-grid'],['s11-q']]
+};
+var INFO={
+  1:'Press → to begin',
+  2:'Real-world emotion comes through text, audio, and image together. Press → to reveal each part.',
+  3:'Two different datasets, standardized to the same seven labels.',
+  4:'Two independent models were trained and evaluated before any fusion took place.',
+  5:'Five careful preparation steps before any training. Press → to step through.',
+  6:'Each model outputs 7 probabilities; fusion combines all 14 numbers.',
+  7:'A small MLP learns when to trust text vs image.',
+  8:'Both fusion methods beat either single model on weighted F1.',
+  9:'Slide 9 shows one full Gradio example at a time. Press → to move through the demo examples.',
+  10:'Encouraging results — but with clear, honest limitations.',
+  11:'Summary and the open question to close on.'
+};
+var stepIdx={};for(var i=1;i<=TOTAL;i++)stepIdx[i]=0;
+
+function showEl(id){var el=document.getElementById(id);if(el)el.classList.add('show');}
+function hideEl(id){var el=document.getElementById(id);if(el)el.classList.remove('show');}
+function setInfo(t){document.getElementById('info-bar').textContent=t;}
+function setCounter(){document.getElementById('counter').textContent='Slide '+curSlide+' / '+TOTAL;}
+
+function animateBars(){
+  document.querySelectorAll('#s8 .bar-fill').forEach(function(b){
+    b.style.width='0';
+    requestAnimationFrame(function(){
+      setTimeout(function(){b.style.width=b.getAttribute('data-w')+'%';},60);
+    });
+  });
+}
+
+function applyStep(slide,idx){
+  // reveal all groups up to and including idx
+  for(var s=0;s<=idx && s<STEPS[slide].length;s++){
+    STEPS[slide][s].forEach(showEl);
+  }
+  if(slide===8 && idx>=0) animateBars();
+}
+function resetSlide(slide){
+  var groups=STEPS[slide]||[];
+  groups.forEach(function(g){g.forEach(hideEl);});
+  stepIdx[slide]=0;
+  if(slide===9 && window.s9Carousel){window.s9Carousel.reset();}
+}
+
+function goSlide(n){
+  clearAll();
+  if(n<1||n>TOTAL)return;
+  document.getElementById('s'+curSlide).classList.remove('active');
+  resetSlide(curSlide);
+  curSlide=n;
+  document.getElementById('s'+n).classList.add('active');
+  resetSlide(n);
+  setCounter();
+  setInfo(INFO[n]);
+  // reveal first step group immediately (headers)
+  if(STEPS[n].length){applyStep(n,0);stepIdx[n]=0;}
+}
+
+function nextStep(){
+  clearAll();
+  var groups=STEPS[curSlide];
+  if(groups && stepIdx[curSlide] < groups.length-1){
+    stepIdx[curSlide]++;
+    applyStep(curSlide,stepIdx[curSlide]);
+    return;
+  }
+  if(curSlide===9 && window.s9Carousel && window.s9Carousel.hasNext()){
+    window.s9Carousel.next();
+    return;
+  }
+  if(curSlide<TOTAL) goSlide(curSlide+1);
+}
+
+function prevSlide(){
+  clearAll();
+  if(curSlide===9 && window.s9Carousel && window.s9Carousel.hasPrev()){
+    window.s9Carousel.prev();
+    return;
+  }
+  var groups=STEPS[curSlide];
+  if(groups && stepIdx[curSlide]>0){
+    stepIdx[curSlide]--;
+    resetSlide(curSlide);
+    applyStep(curSlide,stepIdx[curSlide]);
+    return;
+  }
+  if(curSlide>1) goSlide(curSlide-1);
+}
+
+document.addEventListener('keydown',function(e){
+  if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();nextStep();}
+  else if(e.key==='ArrowLeft'){e.preventDefault();prevSlide();}
+  else if(e.key==='p'||e.key==='P')setMode('pen');
+  else if(e.key==='e'||e.key==='E')setMode('eraser');
+  else if(e.key==='c'||e.key==='C')clearAll();
+  else if(e.key==='1')setColor('#ff6b4a','col-r');
+  else if(e.key==='2')setColor('#0f9b8e','col-b');
+  else if(e.key==='3')setColor('#6c4ad6','col-v');
+  else if(e.key==='4')setColor('#f59e0b','col-y');
+  else if(e.key==='5')setColor('#15182b','col-d');
+});
+
+// ══════════════════════════════════
+// SLIDE 9 — DEMO EXAMPLE CAROUSEL
+// ══════════════════════════════════
+(function(){
+  var frames=document.querySelectorAll('#s9-carousel .demo9-frame');
+  var idx=0;
+  var backBtn=document.getElementById('s9-back');
+  var nextBtn=document.getElementById('s9-next');
+  var progress=document.getElementById('s9-progress');
+  if(!frames.length||!backBtn||!nextBtn) return;
+  function show(i){
+    idx=i;
+    frames.forEach(function(f,fi){f.classList.toggle('active',fi===i);});
+    if(progress) progress.textContent='Example '+(i+1)+' of '+frames.length;
+    backBtn.disabled=(i===0);
+    nextBtn.disabled=(i===frames.length-1);
+  }
+  window.s9Carousel={
+    next:function(){if(idx<frames.length-1){show(idx+1);}},
+    prev:function(){if(idx>0){show(idx-1);}},
+    reset:function(){show(0);},
+    hasNext:function(){return idx<frames.length-1;},
+    hasPrev:function(){return idx>0;}
+  };
+  backBtn.addEventListener('click',function(){window.s9Carousel.prev();});
+  nextBtn.addEventListener('click',function(){window.s9Carousel.next();});
+  show(0);
+})();
+
+setCounter();
+</script>
+</body>
+</html>
